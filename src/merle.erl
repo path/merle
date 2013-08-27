@@ -208,11 +208,8 @@ set(Key, Flag, ExpTime, Value) when is_integer(Flag) ->
 set(Key, Flag, ExpTime, Value) when is_integer(ExpTime) ->
     set(Key, Flag, integer_to_list(ExpTime), Value);
 set(Key, Flag, ExpTime, Value) ->
-    case gen_server2:call(?SERVER, {set, {Key, Flag, ExpTime, Value, true}}) of
-        ["STORED"] -> ok;
-        ["NOT_STORED"] -> not_stored;
-        [X] -> X
-    end.
+    set_call({set, {Key, Flag, ExpTime, Value, true}}).
+
 
 %% @doc set that plays nicely with other languages (ex. Python).
 %%   doesn't assume values are terms
@@ -228,12 +225,7 @@ s_set(Key, ExpTime, Value) ->
     s_set(Key, "0", ExpTime, Value).
 
 s_set(Key, Flag, ExpTime, Value) ->
-    case gen_server2:call(?SERVER, {set, {Key, Flag, ExpTime, Value, false}}) of
-        ["STORED"] -> ok;
-        ["NOT_STORED"] -> not_stored;
-        [X] -> X
-    end.
-
+    set_call({set, {Key, Flag, ExpTime, Value, false}}).
 
 %% @doc Store a key/value pair if it doesn't already exist.
 add(Key, Value) ->
@@ -247,11 +239,8 @@ add(Key, Flag, ExpTime, Value) when is_integer(Flag) ->
 add(Key, Flag, ExpTime, Value) when is_integer(ExpTime) ->
     add(Key, Flag, integer_to_list(ExpTime), Value);
 add(Key, Flag, ExpTime, Value) ->
-    case gen_server2:call(?SERVER, {add, {Key, Flag, ExpTime, Value, true}}) of
-        ["STORED"] -> ok;
-        ["NOT_STORED"] -> not_stored;
-        [X] -> X
-    end.
+    set_call({add, {Key, Flag, ExpTime, Value, true}}).
+
 
 %% @doc add that plays nicely with Python
 %%   doesn't assume values are terms
@@ -266,12 +255,7 @@ s_add(Key, ExpTime, Value) ->
     s_add(Key, "0", ExpTime, Value).
 
 s_add(Key, Flag, ExpTime, Value) ->
-    case gen_server2:call(?SERVER, {add, {Key, Flag, ExpTime, Value, false}}) of
-        ["STORED"] -> ok;
-        ["NOT_STORED"] -> not_stored;
-        [X] -> X
-    end.
-
+    set_call({add, {Key, Flag, ExpTime, Value, false}}).
 
 
 %% @doc Replace an existing key/value pair.
@@ -286,11 +270,7 @@ replace(Key, Flag, ExpTime, Value) when is_integer(Flag) ->
 replace(Key, Flag, ExpTime, Value) when is_integer(ExpTime) ->
     replace(Key, Flag, integer_to_list(ExpTime), Value);
 replace(Key, Flag, ExpTime, Value) ->
-    case gen_server2:call(?SERVER, {replace, {Key, Flag, ExpTime, Value, true}}) of
-        ["STORED"] -> ok;
-        ["NOT_STORED"] -> not_stored;
-        [X] -> X
-    end.
+    set_call({replace, {Key, Flag, ExpTime, Value, true}}).
 
 
 %% @doc replace that places nice with Python
@@ -306,12 +286,7 @@ s_replace(Key, ExpTime, Value) ->
     s_replace(Key, "0", ExpTime, Value).
 
 s_replace(Key, Flag, ExpTime, Value) ->
-    case gen_server2:call(?SERVER, {replace, {Key, Flag, ExpTime, Value, false}}) of
-        ["STORED"] -> ok;
-        ["NOT_STORED"] -> not_stored;
-        [X] -> X
-    end.
-
+    set_call({replace, {Key, Flag, ExpTime, Value, false}}).
 
 
 %% @doc Store a key/value pair if possible.
@@ -328,12 +303,7 @@ cas(Key, Flag, ExpTime, CasUniq, Value) when is_integer(ExpTime) ->
 cas(Key, Flag, ExpTime, CasUniq, Value) when is_integer(CasUniq) ->
     cas(Key, Flag, ExpTime, integer_to_list(CasUniq), Value);
 cas(Key, Flag, ExpTime, CasUniq, Value) ->
-    case gen_server2:call(?SERVER, {cas, {Key, Flag, ExpTime, CasUniq, Value, false}}) of
-        ["STORED"] -> ok;
-        ["NOT_STORED"] -> not_stored;
-        [X] -> X
-    end.
-
+    set_call({cas, {Key, Flag, ExpTime, CasUniq, Value, true}}).
 
 %% @doc cas that plays nice with Python
 %%   doesn't assume values are terms
@@ -350,10 +320,14 @@ s_cas(Key, ExpTime, CasUniq, Value) ->
     s_cas(Key, "0", ExpTime, CasUniq, Value).
 
 s_cas(Key, Flag, ExpTime, CasUniq, Value) ->
-    case gen_server2:call(?SERVER, {cas, {Key, Flag, ExpTime, CasUniq, Value, false}}) of
+    set_call({cas, {Key, Flag, ExpTime, CasUniq, Value, false}}).
+
+set_call(Msg) ->
+    case gen_server2:call(?SERVER, Msg) of
         ["STORED"] -> ok;
         ["NOT_STORED"] -> not_stored;
-        [X] -> X
+        [X] -> X;
+        Error -> {error, Error}
     end.
 
 
@@ -597,14 +571,14 @@ exec(Fun, FromPid, State) ->
     {CurrentState, Socket} = get_socket(FromPid, State),
     Reply = try Fun(Socket)
             catch C:E ->
+                    %% An error should close the connection
+                    gen_server2:cast(?SERVER, {close, Socket, error}),
                     erlang:raise(C, E, erlang:get_stacktrace())
-            after
-                gen_server2:cast(?SERVER, {free, Socket})
             end,
     case Reply of
         timeout -> gen_server2:cast(?SERVER, {close, Socket, timeout});
-        connection_closed -> gen_server2:cast(?SERVER, {close, Socket, timeout});
-        _ -> ok
+        connection_closed -> gen_server2:cast(?SERVER, {close, Socket, connection_closed});
+        _ -> gen_server2:cast(?SERVER, {free, Socket})
     end,
     {CurrentState, Reply}.
 
