@@ -2,7 +2,7 @@
 
 -export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 
--define(RESTART_INTERVAL, 15 * 1000). %% retry each 5 seconds. 
+-define(RESTART_INTERVAL, 2 * 1000). %% retry each 5 seconds.
 
 -record(state, {mcd_pid, 
                 host,
